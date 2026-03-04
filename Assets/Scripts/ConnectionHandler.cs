@@ -149,5 +149,18 @@ public class ConnectionHandler : MonoBehaviour
     {
         Debug.Log("[Server] Server fully started and ready for connections");
         // → Load networked scene, spawn world objects, initialize match state, etc.
+        var net = NetworkManager.Singleton;
+        if (net.IsHost && gameManager != null)
+        {
+            gameManager.StartGame();
+        }
+    }
+
+    private void OnApplicationQuit()
+    {
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
     }
 }

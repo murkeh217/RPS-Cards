@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using TMPro;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -16,10 +18,10 @@ public class GameManager : MonoBehaviour
 
     public Button Join;
     public TMP_InputField JoinIP;
-    public TMP_InputField JoinPort;            // optional – you can use this too
+    public TMP_InputField JoinPort;            // optional ï¿½ you can use this too
 
     public Button Host;
-    public TMP_InputField HostPort;            // optional – for custom host port
+    public TMP_InputField HostPort;            // optional ï¿½ for custom host port
 
     public TMP_Text Round;
     public TMP_Text Score;
@@ -28,6 +30,7 @@ public class GameManager : MonoBehaviour
     public GameObject messageBox;
 
     private UnityTransport unityTransport;
+    private TextMeshProUGUI ipOverlayText;
 
     void Start()
     {
@@ -56,23 +59,24 @@ public class GameManager : MonoBehaviour
             }
             else
             {
-                MessageBox("Invalid host port – using default " + defaultPort);
+                MessageBox("Invalid host port ï¿½ using default " + defaultPort);
             }
         }
 
         // For HOST/SERVER: 
         // - Address is mostly ignored (but can be set to 0.0.0.0 or local IP)
         // - Port = listen port
-        // - listenAddress = "0.0.0.0" (critical – listen on all interfaces)
+        // - listenAddress = "0.0.0.0" (critical ï¿½ listen on all interfaces)
         unityTransport.SetConnectionData("0.0.0.0", hostPort, "0.0.0.0");
 
         AttemptStartGame();
-        LoadPanel.GetComponentInChildren<TMP_Text>().text = "Hosting...";
 
         if (NetworkManager.Singleton.StartHost())
         {
-            // Success – you can log or update UI here
-            Debug.Log($"Host started on port {hostPort}");
+            string localIP = GetLocalIPv4();
+            string ipDisplay = $"{localIP}:{hostPort}";
+            ShowIPOverlay(ipDisplay, isHost: true);
+            Debug.Log($"Host started - Your IP: {ipDisplay}");
         }
         else
         {
@@ -99,7 +103,7 @@ public class GameManager : MonoBehaviour
             }
             else
             {
-                MessageBox("Invalid join port – using default");
+                MessageBox("Invalid join port ï¿½ using default");
             }
         }
 
@@ -112,6 +116,7 @@ public class GameManager : MonoBehaviour
 
         if (NetworkManager.Singleton.StartClient())
         {
+            ShowIPOverlay($"{JoinIP.text}:{clientPort}", isHost: false);
             Debug.Log($"Client connecting to {JoinIP.text}:{clientPort}");
         }
         else
@@ -122,19 +127,79 @@ public class GameManager : MonoBehaviour
 
     public void StartGame()
     {
-        ConnectPanel.SetActive(false);
-        LoadPanel.SetActive(false);
-        GamePanel.SetActive(true);
+        if (ConnectPanel != null) ConnectPanel.SetActive(false);
+        if (LoadPanel != null) LoadPanel.SetActive(false);
+        if (GamePanel != null) GamePanel.SetActive(true);
 
-        Round.text = "Round:\n0";
-        Score.text = "Score:\n0";
-        
+        if (Round != null) Round.text = "Round:\n0";
+        if (Score != null) Score.text = "Score:\n0";
     }
 
     void AttemptStartGame()
     {
-        ConnectPanel.SetActive(false);
-        LoadPanel.SetActive(true);
+        if (ConnectPanel != null) ConnectPanel.SetActive(false);
+        if (LoadPanel != null) LoadPanel.SetActive(true);
+    }
+
+    void ShowIPOverlay(string ipText, bool isHost)
+    {
+        if (ipOverlayText == null)
+        {
+            GameObject canvasObj = new GameObject("IPOverlayCanvas");
+            DontDestroyOnLoad(canvasObj);
+            Canvas canvas = canvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 9998;
+            canvasObj.AddComponent<CanvasScaler>();
+            canvasObj.AddComponent<GraphicRaycaster>();
+
+            // Dark background panel for contrast
+            GameObject panelObj = new GameObject("IPPanel");
+            panelObj.transform.SetParent(canvasObj.transform, false);
+            UnityEngine.UI.Image bg = panelObj.AddComponent<UnityEngine.UI.Image>();
+            bg.color = new Color(0f, 0f, 0f, 0.65f);
+            RectTransform panelRect = bg.rectTransform;
+            panelRect.anchorMin = new Vector2(0f, 1f);
+            panelRect.anchorMax = new Vector2(1f, 1f);
+            panelRect.pivot = new Vector2(0.5f, 1f);
+            panelRect.anchoredPosition = Vector2.zero;
+            panelRect.sizeDelta = new Vector2(0f, 54f);
+
+            GameObject textObj = new GameObject("IPText");
+            textObj.transform.SetParent(panelObj.transform, false);
+            ipOverlayText = textObj.AddComponent<TextMeshProUGUI>();
+            ipOverlayText.fontSize = 28;
+            ipOverlayText.color = Color.white;
+            ipOverlayText.alignment = TextAlignmentOptions.Center;
+            ipOverlayText.fontStyle = FontStyles.Bold;
+
+            RectTransform rect = ipOverlayText.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.sizeDelta = Vector2.zero;
+            rect.anchoredPosition = Vector2.zero;
+        }
+
+        string label = isHost ? "Hosting" : "Connected to";
+        ipOverlayText.text = $"{label}:  {ipText}";
+    }
+
+    string GetLocalIPv4()
+    {
+        try
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork && ip.ToString() != "127.0.0.1")
+                    return ip.ToString();
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"Failed to get local IP: {ex.Message}");
+        }
+        return "unknown";
     }
 
     void MessageBox(string message)

@@ -3691,7 +3691,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c60217cb248a211459f8c6792396ad16, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
-  defaultPort: 7777
+  defaultPort: 7779
   ConnectPanel: {fileID: 690589617}
   LoadPanel: {fileID: 826440962}
   GamePanel: {fileID: 0}
