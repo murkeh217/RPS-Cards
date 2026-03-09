@@ -8,7 +8,7 @@ using System.Net.Sockets;
 
 public class ConnectionHandler : MonoBehaviour
 {
-    [SerializeField] private GameManager gameManager;  // assign in Inspector
+    [SerializeField] private GameManager gameManager;
 
     private void OnEnable()
     {
@@ -17,7 +17,6 @@ public class ConnectionHandler : MonoBehaviour
 
     private IEnumerator WaitForNetworkManagerAndSubscribe()
     {
-        // Wait until NetworkManager is fully initialized
         while (NetworkManager.Singleton == null)
         {
             yield return null;
@@ -25,51 +24,96 @@ public class ConnectionHandler : MonoBehaviour
 
         var net = NetworkManager.Singleton;
 
-        // Subscribe to events
         net.OnClientConnectedCallback += HandleClientConnected;
+        net.OnClientDisconnectCallback += HandleClientDisconnected;
         net.OnServerStarted += HandleServerStarted;
+    }
 
-        // Print IP/port information immediately after NetworkManager is ready
+    private void OnDisable()
+    {
+        var net = NetworkManager.Singleton;
+        if (net == null) return;
+
+        net.OnClientConnectedCallback -= HandleClientConnected;
+        net.OnClientDisconnectCallback -= HandleClientDisconnected;
+        net.OnServerStarted -= HandleServerStarted;
+    }
+
+    private void HandleServerStarted()
+    {
+        Debug.Log("[Server] Server started");
         PrintConnectionInfo();
+
+        if (NetworkManager.Singleton.IsHost)
+        {
+            if (gameManager != null)
+            {
+                gameManager.StartGame();
+            }
+        }
+    }
+
+    private void HandleClientConnected(ulong clientId)
+    {
+        var net = NetworkManager.Singleton;
+
+        if (net.IsServer && clientId != net.LocalClientId)
+        {
+            Debug.Log("[Server] Remote client connected: " + clientId);
+        }
+
+        if (net.IsClient && !net.IsHost && clientId == net.LocalClientId)
+        {
+            Debug.Log("[Client] Connected to server with ID: " + clientId);
+
+            if (gameManager != null)
+            {
+                gameManager.StartGame();
+            }
+        }
+    }
+
+    private void HandleClientDisconnected(ulong clientId)
+    {
+        var net = NetworkManager.Singleton;
+
+        if (net.IsServer)
+        {
+            Debug.Log("[Server] Client disconnected: " + clientId);
+        }
+
+        if (net.IsClient && !net.IsHost && clientId == net.LocalClientId)
+        {
+            Debug.Log("[Client] Disconnected from server");
+
+            if (gameManager != null)
+            {
+                gameManager.ShowDisconnected();
+            }
+        }
     }
 
     private void PrintConnectionInfo()
     {
         var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-        if (transport == null)
+        if (transport == null) return;
+
+        ushort port = transport.ConnectionData.Port;
+        string listenAddress = transport.ConnectionData.ServerListenAddress;
+
+        Debug.Log("[Host/Server] Listening on port: " + port + " (listen: " + listenAddress + ")");
+
+        var localIps = GetLocalIPv4Addresses();
+        if (localIps.Count > 0)
         {
-            Debug.LogWarning("[ConnectionHandler] No UnityTransport component found on NetworkManager!");
-            return;
-        }
-
-        var net = NetworkManager.Singleton;
-
-        if (net.IsServer || net.IsHost)
-        {
-            ushort port = transport.ConnectionData.Port;
-            string listenAddress = transport.ConnectionData.ServerListenAddress; // usually "0.0.0.0"
-
-            Debug.Log($"[{(net.IsHost ? "Host" : "Server")}] Listening on port: {port} " +
-                      $"(ServerListenAddress: {listenAddress})");
-
-            // Show local IPv4 addresses clients can use to connect (LAN)
-            var localIps = GetLocalIPv4Addresses();
-            Debug.Log($"[Server/Host] Local IPv4 addresses to share:");
             foreach (var ip in localIps)
             {
-                Debug.Log($"  → {ip}:{port}");
-            }
-            if (localIps.Count == 0)
-            {
-                Debug.Log("  (No local IPv4 addresses detected – check network adapters)");
+                Debug.Log("  -> " + ip + ":" + port);
             }
         }
-
-        if (net.IsClient && !net.IsHost)
+        else
         {
-            string targetIp = transport.ConnectionData.Address;
-            ushort targetPort = transport.ConnectionData.Port;
-            Debug.Log($"[Client] Attempting connection to: {targetIp}:{targetPort}");
+            Debug.Log("  (No local IPv4 addresses found)");
         }
     }
 
@@ -82,10 +126,10 @@ public class ConnectionHandler : MonoBehaviour
             var host = Dns.GetHostEntry(Dns.GetHostName());
             foreach (var ip in host.AddressList)
             {
-                if (ip.AddressFamily == AddressFamily.InterNetwork) // IPv4
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
                     string ipStr = ip.ToString();
-                    if (ipStr != "127.0.0.1") // skip loopback by default
+                    if (ipStr != "127.0.0.1")
                     {
                         addresses.Add(ipStr);
                     }
@@ -94,11 +138,14 @@ public class ConnectionHandler : MonoBehaviour
         }
         catch (System.Exception ex)
         {
-            Debug.LogWarning($"[ConnectionHandler] Failed to get local IPs: {ex.Message}");
+            Debug.LogWarning("[ConnectionHandler] " + ex.Message);
         }
 
         return addresses;
     }
+<<<<<<< HEAD
+}
+=======
 
     private void OnDisable()
     {
@@ -164,3 +211,4 @@ public class ConnectionHandler : MonoBehaviour
         }
     }
 }
+>>>>>>> 6ad249589dbde9747ad272814bf4865701035a59
