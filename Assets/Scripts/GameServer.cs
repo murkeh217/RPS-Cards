@@ -16,6 +16,8 @@ public class GameServer : NetworkBehaviour
     private int currentRound = 0;
     private bool matchActive = false;
     private bool suddenDeath = false;
+    private ulong player1 = ulong.MaxValue;
+    private ulong player2 = ulong.MaxValue;
 
     private void Awake()
     {
@@ -63,11 +65,6 @@ public class GameServer : NetworkBehaviour
         return client;
     }
 
-    List<ulong> GetAllPlayerIds()
-    {
-        return NetworkManager.Singleton.ConnectedClientsIds.ToList();
-    }
-
     public void PlayerReady(ulong clientId)
     {
         if (!IsServer) return;
@@ -76,6 +73,19 @@ public class GameServer : NetworkBehaviour
 
         if (readyPlayers.Count >= 2 && !matchActive)
         {
+            var ids = readyPlayers.ToList();
+            player1 = ids[0];
+            player2 = ids[1];
+
+            Client c1 = GetClientComponent(player1);
+            Client c2 = GetClientComponent(player2);
+
+            if (c1 != null && c2 != null)
+            {
+                c1.OpponentName.Value = c2.playerName.Value;
+                c2.OpponentName.Value = c1.playerName.Value;
+            }
+
             StartMatch();
         }
     }
@@ -86,17 +96,29 @@ public class GameServer : NetworkBehaviour
         currentRound = 0;
         suddenDeath = false;
 
-        foreach (ulong id in GetAllPlayerIds())
+        Client c1 = GetClientComponent(player1);
+        Client c2 = GetClientComponent(player2);
+
+        if (c1 != null)
         {
-            Client c = GetClientComponent(id);
-            if (c == null) continue;
-            c.Score.Value = 0;
-            c.OpponentScore.Value = 0;
-            c.CurrentRound.Value = 0;
-            c.MatchOver.Value = false;
-            c.MatchWinner.Value = -1;
-            c.IsSuddenDeath.Value = false;
-            decks[id] = BuildDeck();
+            c1.Score.Value = 0;
+            c1.OpponentScore.Value = 0;
+            c1.CurrentRound.Value = 0;
+            c1.MatchOver.Value = false;
+            c1.MatchWinner.Value = ulong.MaxValue;
+            c1.IsSuddenDeath.Value = false;
+            decks[player1] = BuildDeck();
+        }
+
+        if (c2 != null)
+        {
+            c2.Score.Value = 0;
+            c2.OpponentScore.Value = 0;
+            c2.CurrentRound.Value = 0;
+            c2.MatchOver.Value = false;
+            c2.MatchWinner.Value = ulong.MaxValue;
+            c2.IsSuddenDeath.Value = false;
+            decks[player2] = BuildDeck();
         }
 
         StartNextRound();
@@ -109,17 +131,31 @@ public class GameServer : NetworkBehaviour
         continueReady.Clear();
         drawnCards.Clear();
 
-        foreach (ulong id in GetAllPlayerIds())
+        Client c1 = GetClientComponent(player1);
+        Client c2 = GetClientComponent(player2);
+
+        if (c1 != null)
         {
-            Client c = GetClientComponent(id);
-            if (c == null) continue;
-            c.CurrentRound.Value = currentRound;
-            c.HasPlayed.Value = false;
-            c.DrawnCard.Value = -1;
-            c.RevealedCard.Value = -1;
-            c.RoundResult.Value = -1;
-            c.IsSuddenDeath.Value = suddenDeath;
-            c.GamePhase.Value = 1;
+            c1.CurrentRound.Value = currentRound;
+            c1.HasPlayed.Value = false;
+            c1.DrawnCard.Value = -1;
+            c1.RevealedCard.Value = -1;
+            c1.OpponentRevealed.Value = -1;
+            c1.RoundResult.Value = -1;
+            c1.IsSuddenDeath.Value = suddenDeath;
+            c1.GamePhase.Value = 1;
+        }
+
+        if (c2 != null)
+        {
+            c2.CurrentRound.Value = currentRound;
+            c2.HasPlayed.Value = false;
+            c2.DrawnCard.Value = -1;
+            c2.RevealedCard.Value = -1;
+            c2.OpponentRevealed.Value = -1;
+            c2.RoundResult.Value = -1;
+            c2.IsSuddenDeath.Value = suddenDeath;
+            c2.GamePhase.Value = 1;
         }
     }
 
@@ -149,8 +185,7 @@ public class GameServer : NetworkBehaviour
         c.HasPlayed.Value = true;
         playedPlayers.Add(clientId);
 
-        var allIds = GetAllPlayerIds();
-        if (playedPlayers.Count >= 2 && playedPlayers.IsSupersetOf(allIds))
+        if (playedPlayers.Contains(player1) && playedPlayers.Contains(player2))
         {
             ResolveRound();
         }
@@ -158,41 +193,36 @@ public class GameServer : NetworkBehaviour
 
     void ResolveRound()
     {
-        var ids = GetAllPlayerIds();
-        if (ids.Count < 2) return;
+        int card1 = drawnCards.ContainsKey(player1) ? drawnCards[player1] : -1;
+        int card2 = drawnCards.ContainsKey(player2) ? drawnCards[player2] : -1;
 
-        ulong p1 = ids[0];
-        ulong p2 = ids[1];
-
-        int card1 = drawnCards.ContainsKey(p1) ? drawnCards[p1] : -1;
-        int card2 = drawnCards.ContainsKey(p2) ? drawnCards[p2] : -1;
-
-        Client c1 = GetClientComponent(p1);
-        Client c2 = GetClientComponent(p2);
+        Client c1 = GetClientComponent(player1);
+        Client c2 = GetClientComponent(player2);
 
         if (c1 == null || c2 == null) return;
 
         c1.RevealedCard.Value = card1;
         c2.RevealedCard.Value = card2;
 
+        c1.OpponentRevealed.Value = card2;
+        c2.OpponentRevealed.Value = card1;
+
         int result1 = DetermineResult(card1, card2);
-        int result2 = -result1;
 
         if (result1 == 1)
         {
             c1.Score.Value += 1;
-            c2.OpponentScore.Value = c1.Score.Value;
-            c1.OpponentScore.Value = c2.Score.Value;
         }
-        else if (result2 == 1)
+        else if (result1 == -1)
         {
             c2.Score.Value += 1;
-            c1.OpponentScore.Value = c2.Score.Value;
-            c2.OpponentScore.Value = c1.Score.Value;
         }
 
+        c1.OpponentScore.Value = c2.Score.Value;
+        c2.OpponentScore.Value = c1.Score.Value;
+
         c1.RoundResult.Value = result1;
-        c2.RoundResult.Value = result2;
+        c2.RoundResult.Value = -result1;
 
         c1.GamePhase.Value = 3;
         c2.GamePhase.Value = 3;
@@ -213,16 +243,15 @@ public class GameServer : NetworkBehaviour
         if (!IsServer) return;
         continueReady.Add(clientId);
 
-        var allIds = GetAllPlayerIds();
-        if (continueReady.Count >= 2 && continueReady.IsSupersetOf(allIds))
+        if (continueReady.Contains(player1) && continueReady.Contains(player2))
         {
-            if (currentRound >= 7 && !suddenDeath)
-            {
-                CheckMatchEnd();
-            }
-            else if (suddenDeath)
+            if (suddenDeath)
             {
                 CheckSuddenDeathEnd();
+            }
+            else if (currentRound >= 7)
+            {
+                CheckMatchEnd();
             }
             else
             {
@@ -233,21 +262,18 @@ public class GameServer : NetworkBehaviour
 
     void CheckMatchEnd()
     {
-        var ids = GetAllPlayerIds();
-        if (ids.Count < 2) return;
-
-        Client c1 = GetClientComponent(ids[0]);
-        Client c2 = GetClientComponent(ids[1]);
+        Client c1 = GetClientComponent(player1);
+        Client c2 = GetClientComponent(player2);
 
         if (c1 == null || c2 == null) return;
 
         if (c1.Score.Value > c2.Score.Value)
         {
-            EndMatch((int)ids[0], c1, c2);
+            EndMatch(player1);
         }
         else if (c2.Score.Value > c1.Score.Value)
         {
-            EndMatch((int)ids[1], c1, c2);
+            EndMatch(player2);
         }
         else
         {
@@ -258,23 +284,18 @@ public class GameServer : NetworkBehaviour
 
     void CheckSuddenDeathEnd()
     {
-        var ids = GetAllPlayerIds();
-        if (ids.Count < 2) return;
-
-        Client c1 = GetClientComponent(ids[0]);
-        Client c2 = GetClientComponent(ids[1]);
-
-        if (c1 == null || c2 == null) return;
+        Client c1 = GetClientComponent(player1);
+        if (c1 == null) return;
 
         int lastResult = c1.RoundResult.Value;
 
         if (lastResult == 1)
         {
-            EndMatch((int)ids[0], c1, c2);
+            EndMatch(player1);
         }
         else if (lastResult == -1)
         {
-            EndMatch((int)ids[1], c1, c2);
+            EndMatch(player2);
         }
         else
         {
@@ -282,16 +303,26 @@ public class GameServer : NetworkBehaviour
         }
     }
 
-    void EndMatch(int winnerId, Client c1, Client c2)
+    void EndMatch(ulong winnerId)
     {
         matchActive = false;
 
-        c1.MatchWinner.Value = winnerId;
-        c2.MatchWinner.Value = winnerId;
-        c1.MatchOver.Value = true;
-        c2.MatchOver.Value = true;
-        c1.GamePhase.Value = 5;
-        c2.GamePhase.Value = 5;
+        Client c1 = GetClientComponent(player1);
+        Client c2 = GetClientComponent(player2);
+
+        if (c1 != null)
+        {
+            c1.MatchWinner.Value = winnerId;
+            c1.MatchOver.Value = true;
+            c1.GamePhase.Value = 5;
+        }
+
+        if (c2 != null)
+        {
+            c2.MatchWinner.Value = winnerId;
+            c2.MatchOver.Value = true;
+            c2.GamePhase.Value = 5;
+        }
     }
 
     public void PlayerRequestRematch(ulong clientId)
@@ -299,15 +330,9 @@ public class GameServer : NetworkBehaviour
         if (!IsServer) return;
         rematchReady.Add(clientId);
 
-        var allIds = GetAllPlayerIds();
-        if (rematchReady.Count >= 2 && rematchReady.IsSupersetOf(allIds))
+        if (rematchReady.Contains(player1) && rematchReady.Contains(player2))
         {
             rematchReady.Clear();
-            readyPlayers.Clear();
-            foreach (ulong id in allIds)
-            {
-                readyPlayers.Add(id);
-            }
             StartMatch();
         }
     }
